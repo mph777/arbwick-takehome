@@ -84,8 +84,10 @@ Same snapshot + same code + same cache → byte-identical log. Two things make
 that true across machines:
 
 - **The model call is content-addressed and committed.** Every request is keyed
-  by a hash of model id, sampling parameters, system prompt, tool schema and the
-  exact payload; the response is committed under `llm_cache/`. `replay` is the
+  by a hash of model id, token limit, system prompt, tool schema and the exact
+  payload — deliberately not of any sampling parameter, whose availability varies
+  by SDK version and would make the key produce spurious misses on a reviewer's
+  machine; the response is committed under `llm_cache/`. `replay` is the
   default mode and never touches the network, so the log reproduces offline
   without a key. This is a *record*, not a hard-coded answer: the key is derived
   from the input, so changing a Stage 2 statistic changes the key and replay then
@@ -110,9 +112,9 @@ candle that had not closed at fetch time.
 
 **The late-listed symbol was chosen from the data, not from memory — and the
 choice is reproducible.** The script probes the first available daily candle of
-every USDT spot pair (`startTime=0, limit=1`) — `<<482>>` pairs, of which
-`<<134>>` listed after 2025-06-01 — then fetches each candidate's window history
-and applies three criteria:
+every USDT spot pair (`startTime=0, limit=1`) — 482 pairs, of which 134 listed
+after 2025-06-01 — then fetches each candidate's window history and applies
+three criteria:
 
 1. unbroken daily history from listing to the window end;
 2. at least `MIN_CANDLES_ES` candles by the window end;
@@ -143,9 +145,11 @@ discovery must still support it, and discovery becomes the justification for the
 choice rather than a live dependency on it.
 
 The full scored candidate table is committed in
-`data/snapshot/late_symbol_selection.json`. Selected: **`<<SYMBOL>>`**, first
-candle `<<DATE>>`, `<<N>>` candles at the window end, first decision
-`<<DATE>>`.
+`data/snapshot/late_symbol_selection.json`. Nine of the 134 candidates satisfy
+criteria 1 and 2. Selected: **HOMEUSDT**, first candle 2025-06-12, 415 candles at
+the window end. Its 366th candle falls on 2026-06-12, which is itself a Friday,
+so the log carries 179 refusals for that symbol and then 8 decisions, with the
+transition landing exactly on a decision date rather than somewhere between two.
 
 `data/verify.py` splits findings in two, which is the part that matters:
 
@@ -166,8 +170,20 @@ quality gate, which refuses a symbol when the trailing window it actually
 consumes contains a gap longer than 5 days, a stale tail, a NaN, a duplicate
 timestamp, or 5 consecutive zero-volume days.
 
-**What the fetch found:** `<<verification summary — missing days, gaps, alignment
-differences between BTC/ETH/SOL, anything unexpected>>`.
+**What the fetch found:** nothing irregular. All three core symbols return 1308
+candles spanning 2023-01-01 to 2026-07-31 with no missing calendar days, no gaps,
+no zero-volume days and no flat-range days; their date sets are identical, so
+there is no alignment difference to handle. HOMEUSDT returns 415 candles from its
+listing date with the same cleanliness, and its first snapshot candle matches the
+independent listing probe. Every hard check passes.
+
+That is a cleaner result than expected — the brief warns that real exchange
+history contains irregularities, and on this universe and window it does not. The
+checks are not therefore decorative: they are the reason the claim "no
+irregularities" can be made at all rather than assumed, and the run-time gate
+still refuses on the same conditions should a future snapshot contain them. The
+broken-data tests in `tests/test_failloud.py` exercise every one of those paths
+against synthetic snapshots precisely because the real one does not.
 
 Two run-time consequences worth stating:
 
@@ -219,8 +235,11 @@ replay mode; and any proposal that breaches a risk limit.
   rolling statistics; the inertia is partly covered by the 30d volatility
   percentile sitting beside it.
 - **Model-side drift.** A model deprecation or a silent server-side change alters
-  Stage 3 without any input changing. The cache pins the historical log, and the
-  model id on every line makes the discontinuity visible, but nothing prevents it.
+  Stage 3 without any input changing — this is not hypothetical: the model
+  originally pinned here was retired during the build. The cache pins the
+  historical log, the dated model id (never a moving alias) sits in the cache key
+  and on every line so the discontinuity is visible, and the SDK-contract tests
+  catch the client-side half of it. Nothing prevents the server-side half.
 - **Prompt injection via data.** Not reachable today — the payload is numeric and
   built field by field — but it becomes reachable the moment any text source
   (news, filings) enters Stage 3.
@@ -251,7 +270,7 @@ replay mode; and any proposal that breaches a risk limit.
 
 Per weekly run: one model call covering the whole universe, `<<X>>` input and
 `<<Y>>` output tokens on average. Across `<<N>>` Fridays that is `<<T>>` tokens,
-about **`<<$>>`** at Haiku 3.5 list price. Wall clock is dominated by the API
+about **`<<$>>`** at Haiku 4.5 list price. Wall clock is dominated by the API
 round trip at roughly 1–3 s; the deterministic stages are a few milliseconds each
 on ~1 300 rows. A full offline replay of the entire sample takes `<<S>>` seconds.
 
@@ -265,7 +284,7 @@ verification.
 
 ## 8. What the AI tooling got wrong
 
-Full detail in `NOTES.md`; the five that mattered:
+Full detail in `NOTES.md`; the ones that mattered:
 
 1. **A floating-point quantiser that violated the invariant its own comment
    asserted.** `math.floor(t/0.05)*0.05` returns `0.30000000000000004` for
@@ -293,3 +312,10 @@ Full detail in `NOTES.md`; the five that mattered:
    ranking key that was reproducible but not comparable across candidates, and
    duly selected a symbol with 15 candles that could never clear any gate. Both
    were caught by reading output and asking what a number meant, not by a test.
+6. **Code written against an API that had moved on** — `temperature=`, removed
+   from the anthropic SDK in 1.0.0, and a model id that had been retired. Both
+   sat in `_call_live`, the one code path the offline suite cannot execute, and
+   both surfaced 52 dates into a live run. The fix generalises the lesson: if a
+   path cannot be *executed* in CI, assert its *contract* in CI —
+   `tests/test_sdk_contract.py` parses the keyword arguments out of the call site
+   and checks them against the installed SDK's signature, for free and offline.

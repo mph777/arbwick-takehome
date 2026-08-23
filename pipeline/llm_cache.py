@@ -2,13 +2,14 @@
 
 The grading instruction is "we will rerun everything offline against your
 snapshot" and "same inputs -> same decisions". A live model call satisfies
-neither: reviewers have no key, and even at temperature 0 a re-run can return a
-different rationale, at which point the committed decision log no longer
-reproduces.
+neither: reviewers have no key, and a re-run can return a different rationale, at
+which point the committed decision log no longer reproduces. The SDK does not
+expose a temperature control at all as of 1.0.0, so there is not even a knob to
+pin.
 
 So every request is keyed by a hash of everything that determines the answer -
-model id, sampling parameters, system prompt, tool schema and the exact payload -
-and the response is committed alongside the code. `replay` is the default and
+model id, token limit, system prompt, tool schema and the exact payload - and the
+response is committed alongside the code. `replay` is the default and
 never touches the network.
 
 This is not a way of hard-coding answers. The key is derived from the input, so
@@ -51,7 +52,6 @@ def sha256(text: str) -> str:
 def request_key(system_prompt: str, tool_schema: dict, payload: dict) -> str:
     return sha256(canonical({
         "model": cfg.LLM_MODEL,
-        "temperature": cfg.LLM_TEMPERATURE,
         "max_tokens": cfg.LLM_MAX_TOKENS,
         "system_sha256": sha256(system_prompt),
         "tool_schema_sha256": sha256(canonical(tool_schema)),

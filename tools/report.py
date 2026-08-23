@@ -103,8 +103,8 @@ def main() -> None:
     if n:
         print(f"  {n} recorded calls: {tin} input + {tout} output tokens")
         print(f"  mean per call: {tin / n:.0f} in / {tout / n:.0f} out")
-        # Haiku 3.5 list price at time of writing: $0.80/MTok in, $4.00/MTok out.
-        cost = tin / 1e6 * 0.80 + tout / 1e6 * 4.00
+        # Haiku 4.5 list price at time of writing: $1.00/MTok in, $5.00/MTok out.
+        cost = tin / 1e6 * 1.00 + tout / 1e6 * 5.00
         print(f"  approx list-price cost of the full demo run: ${cost:.4f}")
 
 

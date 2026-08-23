@@ -45,7 +45,7 @@ LATE_RANK_TRAILING_DAYS = 30
 # Once chosen, the symbol is pinned here so a later re-fetch cannot silently swap
 # it (e.g. because a higher-ranked candidate was delisted meanwhile).
 # None = let discovery choose.
-LATE_SYMBOL_PIN: str | None = None
+LATE_SYMBOL_PIN: str | None = "HOMEUSDT"
 
 LATE_SYMBOL_SELECTION_FILE = SNAPSHOT_DIR / "late_symbol_selection.json"
 MANIFEST_FILE = SNAPSHOT_DIR / "manifest.json"
@@ -104,10 +104,20 @@ MAX_ZERO_VOLUME_TAIL = 5       # trailing days of zero volume -> refuse
 # --------------------------------------------------------------------------
 # Stage 3 - allocation agent
 # --------------------------------------------------------------------------
-LLM_MODEL = "claude-3-5-haiku-20241022"
+# Pinned to a dated snapshot, not the "claude-haiku-4-5" alias: an alias moves
+# under you, and a decision log whose model silently changed is not reproducible.
+# The id rides on every log line and in the cache key, so a future deprecation
+# shows up as a visible discontinuity rather than a quiet drift.
+LLM_MODEL = "claude-haiku-4-5-20251001"
 LLM_MAX_TOKENS = 2048
-LLM_TEMPERATURE = 0.0
 LLM_MAX_RETRIES = 1  # one reprompt on schema failure, then refuse
+
+# There is deliberately no temperature setting. The anthropic SDK removed the
+# parameter in 1.0.0, and no sampling knob it might expose would make the log
+# reproducible anyway - reproducibility comes entirely from the committed
+# response cache (pipeline/llm_cache.py). Not pinning a temperature also keeps
+# the cache key free of a field whose availability varies by SDK version, which
+# would otherwise cause a spurious cache miss on a reviewer's machine.
 
 STANCES = ("risk_on", "neutral", "risk_off")
 TILT_QUANTUM = 0.05

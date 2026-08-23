@@ -197,7 +197,6 @@ def _call_live(sys_prompt: str, payload: dict) -> tuple[LLMResponse, object]:
         response = client.messages.create(
             model=cfg.LLM_MODEL,
             max_tokens=cfg.LLM_MAX_TOKENS,
-            temperature=cfg.LLM_TEMPERATURE,
             system=sys_prompt,
             tools=[TOOL_SCHEMA],
             tool_choice={"type": "tool", "name": TOOL_SCHEMA["name"]},

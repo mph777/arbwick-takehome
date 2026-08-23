@@ -122,6 +122,48 @@ found this: the code did exactly what it said, and what it said was wrong.
 candidate, and require the winner to reach the history gate so the log shows the
 gate opening rather than only refusing.
 
+## 7. Code written against an API that had moved on
+
+Two defects with one root cause, both found by the first live run rather than by
+the test suite.
+
+**`temperature=` in `messages.create()`.** Removed from the anthropic SDK in
+1.0.0. The call raised `TypeError: unexpected keyword argument 'temperature'` -
+52 dates into a 187-date weekly run, on the first date that actually reached
+Stage 3, because every earlier date refused before the model was called. Nothing
+was wasted, but only by luck of ordering.
+
+**A retired model id.** `claude-3-5-haiku-20241022` was pinned from memory and is
+no longer in the model catalogue; the run would have failed on the next line.
+
+**Why the suite did not catch either.** `_call_live` is the single code path the
+offline tests cannot execute - it needs a key and a network - so it was also the
+only place where a plausible-looking call could survive unexecuted. Everything
+around it was tested; the call itself was not.
+
+**The fix.** `tests/test_sdk_contract.py` introspects the *installed* SDK instead
+of calling it: it parses the keyword arguments out of `_call_live` and asserts
+every one exists in `Messages.create`'s signature, asserts the arguments the
+design depends on (`tools`, `tool_choice`, `system`) are still available, and
+asserts the `usage` fields the cost report reads still exist. No key, no network,
+no cost, and it would have failed before the run started.
+
+Two design consequences, both kept:
+
+* Sampling parameters are gone from the cache key entirely. Their availability
+  varies by SDK version, and a key that depends on the SDK version produces a
+  spurious cache miss on a reviewer's machine. Reproducibility was never coming
+  from a temperature setting - it comes from the committed cache.
+* The model id stays a dated snapshot rather than the `claude-haiku-4-5` alias.
+  An alias moves silently; the pinned id is in the cache key and on every log
+  line, so the next deprecation shows up as a visible discontinuity instead of a
+  quiet change in what produced the decisions.
+
+**The general lesson.** This is the same failure as the 252-day year: code
+generated against a remembered version of the world, in the one spot no test
+executes. The rule that falls out of it - if a code path cannot be executed in
+CI, assert its *contract* in CI - is cheap and would have caught both.
+
 ## Add as you go
 
 - [ ] anything the live fetch surfaces that the offline build could not
