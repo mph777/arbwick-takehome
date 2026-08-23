@@ -110,7 +110,20 @@ that true across machines:
   an auditor can tell whether two lines were produced by the same pipeline
   without trusting the runner.
 
-`python -m pipeline.orchestrator --weekly --check` regenerates and diffs.
+`python -m pipeline.orchestrator --weekly --check` regenerates the whole log
+from the committed snapshot and cache and diffs it against `logs/decisions.jsonl`,
+naming the first differing lines and fields rather than only reporting a
+mismatch.
+
+Two fields are excluded from that comparison, and the distinction matters:
+`git_commit`, because code is often committed after the log it produced, and
+`llm_source`, which reads `live` on the run that recorded the cache and `cache`
+on every replay of it. Neither describes the decision — `llm_source` describes
+the route taken to an identical answer, and the cache key that identifies the
+request and response *is* compared. Everything else must match byte for byte:
+regime, risk read, stance, tilt, rationale, every constraint applied, and all
+four hashes. A test asserts both halves of this — that a live-written log and a
+replayed one compare equal, and that a tampered tilt still fails.
 
 ## 4. Data verification
 
@@ -351,3 +364,9 @@ Full detail in `NOTES.md`; the ones that mattered:
    path cannot be *executed* in CI, assert its *contract* in CI —
    `tests/test_sdk_contract.py` parses the keyword arguments out of the call site
    and checks them against the installed SDK's signature, for free and offline.
+7. **A reproducibility check that could never pass.** `--check` compared
+   `llm_source`, which is `live` in the committed log and `cache` on every
+   replay — so it failed on all 413 decision lines the first time it was used in
+   earnest, having passed every test, because the tests only ever compared a
+   replay against a replay. The lesson is the same shape as the SDK one: the
+   comparison that matters in production was not the comparison being tested.

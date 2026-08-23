@@ -168,6 +168,65 @@ def write_log(entries: list[DecisionLogEntry], path: Path) -> None:
             fh.write(serialise(e) + "\n")
 
 
+# Fields that describe THIS EXECUTION rather than the decision it produced, and
+# are therefore excluded from the reproducibility comparison. Everything else -
+# regime, risk, stance, tilt, rationale, every constraint applied, the snapshot
+# hash, the prompt and parameter hashes, the as-of cutoff, the cache key - must
+# match byte for byte.
+#
+#   git_commit  the code may be committed after the log was written
+#   llm_source  "live" on the run that recorded the cache, "cache" on every
+#               replay of it. The answer is identical either way; only the route
+#               to it differs, and the cache key (which IS compared) identifies
+#               the request and response exactly.
+VOLATILE_FIELDS = {"llm_source"}
+VOLATILE_PROVENANCE_FIELDS = {"git_commit"}
+
+
+def normalise(line: str) -> str:
+    row = json.loads(line)
+    row = {k: v for k, v in row.items() if k not in VOLATILE_FIELDS}
+    row["provenance"] = {k: v for k, v in row["provenance"].items()
+                         if k not in VOLATILE_PROVENANCE_FIELDS}
+    return json.dumps(row, sort_keys=True, separators=(",", ":"))
+
+
+def report_reproducibility(path: Path, entries: list[DecisionLogEntry]) -> None:
+    """Diff a regenerated log against the committed one, and say where."""
+    committed = [normalise(l) for l in path.read_text().splitlines() if l.strip()]
+    regenerated = [normalise(serialise(e)) for e in entries]
+
+    if committed == regenerated:
+        print(f"\nreproducible: {len(regenerated)} lines identical to {path}")
+        print(f"  (excluded from the comparison: "
+              f"{', '.join(sorted(VOLATILE_FIELDS | VOLATILE_PROVENANCE_FIELDS))})")
+        return
+
+    print(f"\nNOT reproducible: regenerated log differs from {path}", file=sys.stderr)
+    if len(committed) != len(regenerated):
+        print(f"  line count: committed {len(committed)}, regenerated "
+              f"{len(regenerated)}", file=sys.stderr)
+
+    shown = 0
+    for i, (a, b) in enumerate(zip(committed, regenerated), 1):
+        if a == b:
+            continue
+        shown += 1
+        if shown > 3:
+            break
+        ja, jb = json.loads(a), json.loads(b)
+        keys = sorted(set(ja) | set(jb))
+        print(f"\n  line {i} differs:", file=sys.stderr)
+        for k in keys:
+            if ja.get(k) != jb.get(k):
+                print(f"    {k}:\n      committed   {json.dumps(ja.get(k))[:300]}"
+                      f"\n      regenerated {json.dumps(jb.get(k))[:300]}", file=sys.stderr)
+    total = sum(1 for a, b in zip(committed, regenerated) if a != b)
+    print(f"\n  {total} of {min(len(committed), len(regenerated))} compared lines "
+          f"differ.", file=sys.stderr)
+    raise SystemExit(1)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="ArbWick regime-to-allocation pipeline")
     ap.add_argument("--as-of", type=date.fromisoformat,
@@ -196,20 +255,7 @@ def main() -> None:
               flush=True)
 
     if args.check:
-        existing = args.out.read_text().splitlines()
-        regenerated = [serialise(e) for e in entries]
-        # git_commit moves between runs; compare everything else.
-        strip = lambda rows: [json.dumps({k: v for k, v in json.loads(r).items()}
-                                         | {"provenance": {kk: vv for kk, vv
-                                                           in json.loads(r)["provenance"].items()
-                                                           if kk != "git_commit"}},
-                                         sort_keys=True) for r in rows]
-        if strip(existing) == strip(regenerated):
-            print(f"\nreproducible: {len(regenerated)} lines identical to {args.out}")
-        else:
-            print(f"\nNOT reproducible: regenerated log differs from {args.out}",
-                  file=sys.stderr)
-            raise SystemExit(1)
+        report_reproducibility(args.out, entries)
         return
 
     write_log(entries, args.out)

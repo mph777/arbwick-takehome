@@ -110,3 +110,44 @@ def test_fridays_are_fridays():
     assert days[0] == date(2023, 1, 6)
     assert all(d.weekday() == 4 for d in days)
     assert all((b - a).days == 7 for a, b in zip(days, days[1:]))
+
+
+def test_live_and_replay_logs_compare_equal(snapshot, primed_cache, tmp_path):
+    """A log written by the run that recorded the cache must compare equal to one
+    regenerated from that cache.
+
+    `llm_source` is "live" on the first and "cache" on the second - it describes
+    the route to the answer, not the answer. If it were compared, `--check` could
+    never pass on a log produced by a live run, which is the only way the log is
+    ever produced in the first place.
+    """
+    as_of = LAST_FRIDAY
+    entries = orchestrator.run_as_of(as_of, primed_cache, snapshot)
+    assert entries
+
+    live_lines = []
+    for e in entries:
+        row = json.loads(orchestrator.serialise(e))
+        if row["record_type"] == "decision":
+            assert row["llm_source"] == "cache"
+            row["llm_source"] = "live"
+            row["provenance"]["git_commit"] = "a" * 40
+        live_lines.append(json.dumps(row, sort_keys=True, separators=(",", ":")))
+
+    replay = [orchestrator.serialise(e) for e in entries]
+    assert [orchestrator.normalise(l) for l in live_lines] == \
+           [orchestrator.normalise(l) for l in replay]
+
+
+def test_check_still_notices_a_real_difference(snapshot, primed_cache, tmp_path):
+    """The exclusions must not blind the check to a changed decision."""
+    as_of = LAST_FRIDAY
+    entries = orchestrator.run_as_of(as_of, primed_cache, snapshot)
+    decision = next(e for e in entries if e.record_type == "decision")
+
+    tampered = json.loads(orchestrator.serialise(decision))
+    tampered["decision"]["sizing_tilt"] = 0.95
+    tampered = json.dumps(tampered, sort_keys=True, separators=(",", ":"))
+
+    assert orchestrator.normalise(tampered) != \
+           orchestrator.normalise(orchestrator.serialise(decision))

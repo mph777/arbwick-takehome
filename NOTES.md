@@ -164,6 +164,36 @@ generated against a remembered version of the world, in the one spot no test
 executes. The rule that falls out of it - if a code path cannot be executed in
 CI, assert its *contract* in CI - is cheap and would have caught both.
 
+## 8. A reproducibility check that could never pass
+
+**What happened.** `--check` compared the regenerated log against the committed
+one byte for byte, excluding only `git_commit`. The committed log had been
+written by a `--mode live` run, so every decision line carried
+`"llm_source": "live"`; the check re-runs in replay and produces `"cache"`. The
+check failed on all 413 decision lines, on the first real use, having passed
+every test.
+
+**Why the tests missed it.** They only ever compared a replay against a replay.
+The one comparison that matters in practice - the log you commit against the log
+a reviewer regenerates - was never exercised, because in the test fixture both
+sides come from the cache.
+
+**Why it is not just an exclusion to add.** The fix is one line, but the reason
+for it is the interesting part: `llm_source` describes *this execution*, not the
+decision. Provenance fields divide into two kinds, and the check has to know
+which is which - `snapshot_sha256`, `prompt_sha256`, `params_sha256` and
+`llm_cache_key` identify what produced the answer and must match; `git_commit`
+and `llm_source` describe the circumstances of a particular run and cannot.
+
+**Also fixed:** the check reported "NOT reproducible" and nothing else. A
+reproducibility check that cannot say *which line and which field* is not usable
+by the person it is meant to help; it now prints the first differing lines
+field-by-field and the total count.
+
+**Tests added.** One asserting a live-written log and a replayed one compare
+equal, one asserting a tampered `sizing_tilt` still fails - so the exclusion
+cannot quietly widen into blindness.
+
 ## Add as you go
 
 - [ ] anything the live fetch surfaces that the offline build could not
