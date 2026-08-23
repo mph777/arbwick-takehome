@@ -1,7 +1,7 @@
 # Regime → risk → allocation: design notes
 
-> Figures marked `<<…>>` are filled from `python -m tools.report` against the
-> committed log — no number in this document is typed by hand.
+> Every figure below comes from `python -m tools.report` run against the
+> committed decision log. None is typed by hand.
 
 ## 1. Where the code/LLM boundary sits, and why
 
@@ -43,8 +43,19 @@ hallucinate a market narrative.
    exemption — there is a test that asserts exactly that. Overrides are not
    silent: the log keeps `llm_stance` and `llm_sizing_tilt` alongside the final
    values and lists every rule that fired.
-   In the demo run, `<<N>>` of `<<M>>` decisions were modified by a rule, of
-   which `<<K>>` had their stance changed rather than just their tilt.
+   In the demo run 86 of 413 decisions were modified by a rule, 31 of them in
+   the stance rather than only the tilt. The model proposed `risk_on` 136 times
+   and was allowed it 105 times. Which rules did the work is itself a finding:
+   `R5` (severe ES) fired 66 times, `R4` (deep-drawdown tilt cap) 36, `R2`
+   (deep-drawdown stance veto) 31, `R3` (stance ceiling) 25 — and **`R1` never
+   fired at all**, nor did `R6`. `R1` is the rule this design started from, and
+   on real data the combination it guards (a `bear_high_vol` tape above the 90th
+   volatility percentile *and* a model asking for `risk_on`) never occurred; the
+   drawdown and tail-loss rules did the actual restraining. `R6` never fired
+   because the model emitted grid-aligned tilts unprompted. Both are reported
+   rather than quietly kept: a rule that has never fired is a rule that has never
+   been tested outside its unit test, and I would not present either as evidence
+   the clamp layer works — the other four are that evidence.
 4. **Its own output shape.** Structure is forced through a tool schema and
    re-validated against a Pydantic model, including that the set of symbols
    returned equals the set sent. One reprompt carrying the validation error, then
@@ -190,8 +201,12 @@ Two run-time consequences worth stating:
 - Symbols are **not** date-aligned into one frame. Each is loaded and cut
   independently, so one symbol's hole cannot shift another's window.
 - Every symbol refuses for its first 365 days because the ES window is never
-  shortened (below). In the demo run that is `<<N>>` refusal lines, and it is the
-  correct answer, not a gap in coverage.
+  shortened (below). In the demo run that is 335 refusal lines of 748, and it is
+  the correct answer rather than a gap in coverage. They decompose exactly as the
+  gates predict: 127 `data_quality/no_data` (HOMEUSDT before it existed), 33
+  `regime/insufficient_history` (under 60 candles), 16 `risk/insufficient_history`
+  (under 90), and 159 `risk/insufficient_history_for_es` (under 366). Each symbol
+  passes through the gates in order and the log names which one is holding.
 
 ## 5. Failure modes
 
@@ -215,9 +230,13 @@ replay mode; and any proposal that breaches a risk limit.
   present-then-gone. Point-in-time universe construction from `exchangeInfo`
   snapshots is the honest version.
 - **Regime noise.** The trend leg flips whenever the 20d return crosses zero, so
-  the label is unstable in flat markets: `<<N>>` regime changes over `<<M>>`
-  decisions, of which `<<K>>` are trend flips. This is a known property, not a
-  bug. Hysteresis would fix it but requires state, and state read from the
+  the label is unstable: over 135 decisions BTCUSDT changes regime 61 times
+  (46%), ETHUSDT 51 (38%) and SOLUSDT 56 (42%), and roughly two thirds of those
+  are the trend leg flipping rather than the volatility leg. A weekly cadence on
+  a 20-day return means consecutive decisions share 15 of 20 observations, so the
+  label should be far stickier than that; it is not, because the trend leg is a
+  sign test on a quantity that spends much of its time near zero. This is a known
+  property, not a bug. Hysteresis would fix it but requires state, and state read from the
   previous decision would break "re-running as-of an earlier date reproduces that
   entry". Smoothing would have to be another pure function of data ≤ *t*.
 - **Overlapping windows.** Rolling 20d volatility observations are heavily
@@ -256,9 +275,12 @@ replay mode; and any proposal that breaches a risk limit.
    re-derivation from the vendor snapshot.
 4. **Instrument the refusal rate as a first-class metric.** A refusal rate that
    drops to zero is a bug report about the gate, not good news.
-5. **Instrument the override rate.** Rules that never fire are untested in
-   production; rules that fire constantly mean the prompt and the limits
-   disagree, and the prompt should be fixed rather than the limit widened.
+5. **Instrument the override rate.** Rules that fire constantly mean the prompt
+   and the limits disagree, and the prompt should be fixed rather than the limit
+   widened. Rules that never fire are untested outside their unit test — `R1` and
+   `R6` are in that position today (§1), and before capital depended on this I
+   would either construct the conditions in a replay harness or drop them, not
+   ship them as unexercised safety.
 6. **Sensitivity sweep on the thresholds.** Every constant in `config.py` is a
    choice; the ones the decision log is materially sensitive to need a stated
    rationale, and the ones it is not can be simplified away.
@@ -268,19 +290,29 @@ replay mode; and any proposal that breaches a risk limit.
 
 ## 7. Cost and latency
 
-Per weekly run: one model call covering the whole universe, `<<X>>` input and
-`<<Y>>` output tokens on average. Across `<<N>>` Fridays that is `<<T>>` tokens,
-about **`<<$>>`** at Haiku 4.5 list price. Wall clock is dominated by the API
-round trip at roughly 1–3 s; the deterministic stages are a few milliseconds each
-on ~1 300 rows. A full offline replay of the entire sample takes `<<S>>` seconds.
+Per weekly run: **one** model call covering the whole universe — not one per
+symbol — averaging 1 638 input and 353 output tokens, about **$0.0034** at Haiku
+4.5 list price. The full-sample backfill was 135 billable calls (the other 52
+Fridays had no symbol the pipeline would stand behind, so no call was made):
+221 078 input and 47 719 output tokens, **$0.46** in total.
 
-What I would optimise, in order: nothing. At this cadence the pipeline costs less
-than a coffee per year and the latency is irrelevant to a weekly decision. If the
-cadence went intraday or the universe went to hundreds of symbols, the first move
-is batching symbols per call (already the design — one call per date, not per
-symbol), then prompt caching on the static system block, and only then a smaller
-model. The expensive part of this system is never the tokens; it is the
-verification.
+Wall clock is dominated by the API round trip at roughly 1–3 s per call; the
+deterministic stages are a few milliseconds each on ~1 300 rows, and an offline
+replay of the whole sample runs from the committed cache without touching the
+network.
+
+What I would optimise, in order: nothing. A production weekly run is one call
+costing a third of a cent, where latency is irrelevant. The backfill took a few
+minutes because dates run sequentially, and it is embarrassingly parallel — but
+it is also a one-off, after which every run replays from cache, so a thread pool
+would buy five minutes once at the cost of concurrency in an orchestrator whose
+main virtue is that it is a `for` loop.
+
+If the cadence went intraday or the universe to hundreds of symbols: batching
+symbols per call is already the design; next would be prompt caching on the
+static system block, which is 1 638 input tokens of mostly-constant instructions
+against 353 output; and only then a smaller model. The expensive part of this
+system is never the tokens — it is the verification.
 
 ## 8. What the AI tooling got wrong
 
