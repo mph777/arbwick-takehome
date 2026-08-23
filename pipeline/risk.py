@@ -4,20 +4,51 @@ Three measures, all computed on data <= t only:
 
   drawdown_from_ath  close_t / max(close <= t) - 1
   vol_percentile     rank of today's 30d realised vol in its own history <= t
-  es_95_1d           mean of the worst 5% of the last 252 daily simple returns
+  es_95_1d           mean of the worst 5% of the last 365 daily simple returns
 
-Two deliberate choices worth defending:
+The three sit on deliberately different time scales: the volatility percentile is
+the state of the tape now, the drawdown is where the position already is along
+its path, and the ES is how bad a bad day looks on a full cycle of evidence. If
+all three reacted at the same speed they would be one measure computed three
+ways, and the LLM would have nothing to weigh.
+
+Choices worth defending:
+
+* ES is a ONE-DAY measure. The 365 is the sample it is estimated from, not the
+  horizon: take the last 365 daily returns, keep the worst 5% (18 observations),
+  average them. It answers "on a bad day, what does one day cost", by historical
+  simulation - no distributional assumption, which matters in a market whose
+  returns are visibly not normal.
+
+* 365, not the TradFi 252. Binance spot trades every calendar day; 252 is the
+  session count of a market that closes at weekends. Importing it here would also
+  contradict the sqrt(365) annualisation used for volatility, and one module
+  holding two different notions of "a year" is a defect even when every number in
+  it is individually defensible.
+
+* The window is equally weighted, and that is the real limitation rather than its
+  length: a day eleven months old counts as much as yesterday, so in a market
+  where volatility clusters hard the ES is slow to acknowledge a regime change.
+  Age-weighted or filtered historical simulation (standardise returns by a
+  GARCH/EWMA volatility estimate, take the tail of the residuals, rescale by
+  today's volatility) is the production answer. It is not used here because it
+  introduces fitted parameters, and a fitted parameter has to be re-estimated
+  point-in-time at every as-of date or the whole log is contaminated - the same
+  argument that keeps Stage 1 on rolling statistics. The inertia is instead
+  covered by the 30d volatility percentile sitting next to it.
 
 * Drawdown is measured on closes, not intraday highs. The pipeline's whole
   decision cadence is daily-close, so a drawdown defined against a wick the
   strategy could never have acted on would overstate the state it is in.
 
-* The ES window does not shrink. Below 253 closes there is no ES estimate and
+* The ES window does not shrink. Below 366 closes there is no ES estimate and
   Stage 2 refuses the whole date for that symbol rather than publishing two of
-  three measures or quietly computing a 95% tail from 60 observations. A tail
-  estimate from a sample too small to contain a tail is the exact failure this
-  brief is about. The cost is visible and bounded: every symbol refuses for its
-  first 252 days of history, which the decision log shows plainly.
+  three measures or quietly computing a 95% tail from 60 observations - where the
+  "worst 5%" is three days, an average that swings on one new observation and
+  that will read calm precisely because a short window rarely contains a crash.
+  A tail estimate from a sample too small to contain a tail is the exact failure
+  this brief is about. The cost is visible and bounded: every symbol refuses for
+  its first 365 days of history, which the decision log shows plainly.
 """
 
 from __future__ import annotations

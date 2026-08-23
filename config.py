@@ -28,11 +28,23 @@ CORE_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 # hard-coded from memory.
 LATE_LISTING_AFTER = date(2025, 6, 1)
 
-# Discovery ranks candidates by median daily quote volume INSIDE the mandated
-# window - a constant given the window, unlike a live 24h volume figure. Once a
-# symbol has been chosen it is pinned here, so a later re-fetch cannot silently
-# swap it (e.g. because a higher-ranked candidate was delisted in the meantime).
-# Set to None to let discovery choose; set to a symbol to require that choice.
+# Among the symbols satisfying that constraint, discovery requires one that has
+# accumulated MIN_CANDLES_ES candles by the window end. A symbol listed weeks
+# before the window closes technically satisfies the brief but can only ever
+# produce refusals; requiring it to reach the history gate means the decision log
+# shows the gate OPENING - refusals with a reason, then decisions - which is the
+# behaviour worth demonstrating.
+#
+# Candidates are ranked by median daily quote volume over a FIXED trailing slice
+# of the window, not over each symbol's own history: medians taken over windows
+# of different lengths are not comparable, and ranking on them systematically
+# favours whichever symbol listed most recently - precisely the symbol least able
+# to show anything.
+LATE_RANK_TRAILING_DAYS = 30
+
+# Once chosen, the symbol is pinned here so a later re-fetch cannot silently swap
+# it (e.g. because a higher-ranked candidate was delisted meanwhile).
+# None = let discovery choose.
 LATE_SYMBOL_PIN: str | None = None
 
 LATE_SYMBOL_SELECTION_FILE = SNAPSHOT_DIR / "late_symbol_selection.json"
@@ -72,9 +84,16 @@ ANNUALISATION_DAYS = 365   # crypto trades every calendar day
 RISK_METHOD_VERSION = "risk/dd-volpctl-es95/v1"
 VOL_WINDOW_RISK = 30
 MIN_CANDLES_RISK = 90          # 30d vol needs >= 60 observations to rank against
-ES_WINDOW = 252                # returns in the ES lookback
+
+# One calendar year of daily returns - 365, not the TradFi 252. Binance spot
+# trades every calendar day, so 252 would be a convention imported from a market
+# that closes at weekends, and it would contradict the sqrt(365) annualisation
+# used for volatility two blocks above. Two different notions of "a year" inside
+# one risk module is the kind of thing that is never wrong enough to break a
+# test and always wrong enough to be embarrassing in review.
+ES_WINDOW = 365
 ES_CONFIDENCE = 0.95
-MIN_CANDLES_ES = ES_WINDOW + 1  # 253 closes -> 252 returns, no short-window fallback
+MIN_CANDLES_ES = ES_WINDOW + 1  # 366 closes -> 365 returns, no short-window fallback
 
 # --------------------------------------------------------------------------
 # Data-quality gate (evaluated on data <= cutoff only)

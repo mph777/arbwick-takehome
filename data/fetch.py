@@ -160,78 +160,107 @@ def median(values: list[float]) -> float:
     return s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2
 
 
-def select_late_symbol(candidates: list[dict]) -> tuple[dict, list[dict]]:
-    """Rank post-cutoff listings by liquidity *inside the mandated window*.
+def score_candidates(candidates: list[dict]) -> list[dict]:
+    """Fetch each candidate's window history and score it for ranking.
 
-    Deliberately NOT ranked by /ticker/24hr quote volume. That figure is a
-    rolling 24-hour window measured at request time, so two candidates with
-    similar turnover can swap places between runs and the fetch would produce a
-    different snapshot each time - the selection would not be reproducible, which
-    is the property the whole exercise is about.
+    The ranking key is deliberately NOT /ticker/24hr quote volume: that figure is
+    a rolling 24-hour window measured at request time, so two candidates with
+    similar turnover swap places between runs and the fetch produces a different
+    snapshot each time.
 
-    The ranking key here is the median daily quote volume over the symbol's
-    history inside the fixed window, computed from the same candles that are
-    fetched anyway to verify completeness. Given the window, it is a constant.
+    It is also not the median over each symbol's own history. Medians taken over
+    windows of different lengths are not comparable - a symbol with fifteen days
+    in the window is being ranked on fifteen recent, active days while a symbol
+    with four hundred is being ranked on a distribution that includes its quiet
+    ones. Ranking on that systematically selects whichever symbol listed most
+    recently, which is exactly the symbol least able to demonstrate anything.
 
-    Residual non-determinism, stated rather than hidden: a symbol delisted
-    between runs disappears from exchangeInfo and so from the candidate set.
-    `cfg.LATE_SYMBOL_PIN` closes that - once chosen, the symbol is pinned and
-    discovery becomes the justification for the choice rather than a live
-    dependency.
+    The key used is the median daily quote volume over a fixed trailing slice of
+    the window, identical for every candidate and constant given the window.
     """
     window_end_ms = to_ms(cfg.WINDOW_END, end_of_day=True)
+    rank_from = to_ms(cfg.WINDOW_END - timedelta(days=cfg.LATE_RANK_TRAILING_DAYS - 1))
     scored: list[dict] = []
 
-    print(f"scoring {len(candidates)} late listings on in-window liquidity ...", flush=True)
+    print(f"scoring {len(candidates)} late listings "
+          f"(median quote volume over the last {cfg.LATE_RANK_TRAILING_DAYS} days "
+          f"of the window) ...", flush=True)
     for i, c in enumerate(candidates, 1):
         rows = fetch_klines(c["symbol"], c["first_candle_ms"], window_end_ms)
         if not rows:
             continue
         expected = (ms_to_date(rows[-1][0]) - ms_to_date(rows[0][0])).days + 1
+        trailing = [float(r[7]) for r in rows if r[0] >= rank_from]
         entry = dict(c)
         entry["n_candles"] = len(rows)
         entry["expected_candles"] = expected
         entry["complete_history"] = len(rows) == expected
         entry["last_date"] = ms_to_date(rows[-1][0]).isoformat()
-        entry["median_daily_quote_volume"] = median([float(r[7]) for r in rows])
+        entry["rank_volume"] = median(trailing)
+        entry["rank_days_available"] = len(trailing)
+        entry["crosses_history_gate"] = len(rows) >= cfg.MIN_CANDLES_ES
         entry["_rows"] = rows
         scored.append(entry)
-        if i % 10 == 0:
+        if i % 20 == 0:
             print(f"  {i}/{len(candidates)} scored", flush=True)
 
-    # Deterministic order: liquidity descending, symbol as the tie-break so that
-    # even an exact tie cannot reorder between runs.
-    scored.sort(key=lambda c: (-c["median_daily_quote_volume"], c["symbol"]))
+    # Liquidity descending, symbol as tie-break so an exact tie cannot reorder.
+    scored.sort(key=lambda c: (-c["rank_volume"], c["symbol"]))
+    return scored
+
+
+def select_late_symbol(scored: list[dict]) -> dict:
+    """Most liquid post-cutoff listing that can actually exercise the pipeline.
+
+    Two requirements beyond the brief's own:
+
+    * unbroken daily history from listing to the window end - a symbol with holes
+      would be refused for structural reasons, which is a different and less
+      interesting demonstration than being refused for thin history;
+    * at least MIN_CANDLES_ES candles by the window end. A symbol listed weeks
+      before the window closes satisfies the brief but can only ever produce
+      refusals. Requiring it to reach the history gate means the log shows the
+      gate opening - refusals with a reason, then decisions at the exact date the
+      evidence becomes sufficient.
+
+    Residual non-determinism, stated rather than hidden: a symbol delisted
+    between runs leaves exchangeInfo and so the candidate set.
+    `cfg.LATE_SYMBOL_PIN` closes that - once chosen, the symbol is pinned,
+    discovery must still support it, and discovery becomes the justification for
+    the choice rather than a live dependency on it.
+    """
+    usable = [c for c in scored
+              if c["complete_history"] and c["crosses_history_gate"]]
 
     if cfg.LATE_SYMBOL_PIN:
-        pinned = [c for c in scored if c["symbol"] == cfg.LATE_SYMBOL_PIN]
-        if not pinned:
+        chosen = next((c for c in usable if c["symbol"] == cfg.LATE_SYMBOL_PIN), None)
+        if chosen is None:
             raise RuntimeError(
                 f"LATE_SYMBOL_PIN={cfg.LATE_SYMBOL_PIN} is not among the "
-                f"{len(scored)} symbols listed after {cfg.LATE_LISTING_AFTER}"
+                f"{len(usable)} symbols listed after {cfg.LATE_LISTING_AFTER} "
+                f"with an unbroken history of at least {cfg.MIN_CANDLES_ES} candles"
             )
-        chosen = pinned[0]
-        if not chosen["complete_history"]:
-            raise RuntimeError(f"{chosen['symbol']}: history has holes "
-                               f"({chosen['n_candles']} candles vs "
-                               f"{chosen['expected_candles']} days)")
         chosen["selection_reason"] = (
-            f"pinned in config.py; rank {scored.index(chosen) + 1} of {len(scored)} "
-            f"by median daily quote volume inside the window"
+            f"pinned in config.py; rank {usable.index(chosen) + 1} of "
+            f"{len(usable)} eligible by median quote volume over the last "
+            f"{cfg.LATE_RANK_TRAILING_DAYS} days of the window"
         )
-    else:
-        chosen = next((c for c in scored if c["complete_history"]), None)
-        if chosen is None:
-            raise RuntimeError("no late-listed candidate had a complete daily history")
-        for c in scored[:scored.index(chosen)]:
-            print(f"  {c['symbol']} skipped: {c['n_candles']} candles vs "
-                  f"{c['expected_candles']} expected days")
-        chosen["selection_reason"] = (
-            "highest median daily quote volume inside the mandated window, among "
-            "post-cutoff listings with an unbroken daily history"
-        )
+        return chosen
 
-    return chosen, scored
+    if not usable:
+        raise RuntimeError(
+            f"no post-cutoff listing has an unbroken history of "
+            f"{cfg.MIN_CANDLES_ES} candles by {cfg.WINDOW_END}"
+        )
+    chosen = usable[0]
+    chosen["selection_reason"] = (
+        f"highest median daily quote volume over the last "
+        f"{cfg.LATE_RANK_TRAILING_DAYS} days of the window, among listings after "
+        f"{cfg.LATE_LISTING_AFTER} with an unbroken daily history of at least "
+        f"{cfg.MIN_CANDLES_ES} candles - so the decision log shows the history "
+        f"gate opening rather than only refusing"
+    )
+    return chosen
 
 
 # ---------------------------------------------------------------------------
@@ -309,9 +338,12 @@ def main() -> None:
     candidates = discover_late_candidates(args.refresh_discovery)
     if not candidates:
         raise SystemExit("no symbol listed after the cut-off was found")
-    chosen, scored = select_late_symbol(candidates)
-    print(f"late symbol: {chosen['symbol']} (listed {chosen['first_candle_date']}, "
-          f"{chosen['n_candles']} candles)")
+    scored = score_candidates(candidates)
+    chosen = select_late_symbol(scored)
+    eligible = sum(1 for c in scored if c["complete_history"] and c["crosses_history_gate"])
+    print(f"late symbol: {chosen['symbol']} listed {chosen['first_candle_date']}, "
+          f"{chosen['n_candles']} candles "
+          f"(most liquid of {eligible} eligible, {len(scored)} scored)")
 
     strip = lambda c: {k: v for k, v in c.items() if not k.startswith("_")}
     cfg.LATE_SYMBOL_SELECTION_FILE.write_text(
@@ -321,10 +353,15 @@ def main() -> None:
                  "listed_after": cfg.LATE_LISTING_AFTER.isoformat(),
                  "must_be_usdt_spot_trading": True,
                  "must_have_unbroken_daily_history": True,
-                 "ranking_key": "median daily quote volume inside the mandated "
-                                "window (window-determined, not live 24h volume)",
+                 "must_reach_history_gate": cfg.MIN_CANDLES_ES,
+                 "ranking_key": f"median daily quote volume over the last "
+                                f"{cfg.LATE_RANK_TRAILING_DAYS} days of the "
+                                f"window - a fixed slice, identical for every "
+                                f"candidate, not each symbol's own history",
                  "tie_break": "symbol, ascending",
-                 "pinned": cfg.LATE_SYMBOL_PIN},
+                 "pinned": cfg.LATE_SYMBOL_PIN,
+                 "n_scored": len(scored),
+                 "n_eligible": eligible},
              "all_candidates": [strip(c) for c in scored]},
             indent=2,
         )

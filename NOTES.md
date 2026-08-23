@@ -76,6 +76,52 @@ missed copy, and it is cheap enough to keep forever.
 
 ---
 
+## 5. Two different notions of "a year" in one risk module
+
+**What was generated.** Volatility annualised with `sqrt(365)` — correct, Binance
+spot trades every calendar day — and, forty lines below, an ES lookback of 252
+returns. Both figures are individually conventional. Together they say the year
+has 365 days and also 252 days.
+
+**Why it survived review for a while.** Nothing catches it. Every test passes,
+`verify.py` is clean, the ES numbers look entirely plausible, and 252 is such a
+standard constant in risk code that it reads as correct rather than as an
+assumption. It only fails the question "why 252 here?", which no test asks.
+
+**The fix.** `ES_WINDOW = 365`, so 366 closes are required and the 5% tail is 18
+observations rather than 12. The cost is visible and correct: every symbol now
+refuses for its first year rather than its first 252 days, which pushes the
+first decision in the sample from September 2023 to January 2024.
+
+**The general lesson.** The mistakes that survive are not the ones that look
+wrong; they are defaults imported wholesale from an adjacent domain. A TradFi
+session count in a market with no sessions is invisible until someone asks what
+the constant means. Worth a pass over every bare number in `config.py` asking the
+same question.
+
+## 6. A ranking key that was reproducible but not comparable
+
+**What happened.** Late-symbol discovery originally ranked candidates by 24h
+quote volume from `/ticker/24hr` — a rolling window measured at request time, so
+re-running the fetch could select a different symbol and produce a different
+snapshot. Replaced with the median daily quote volume over each symbol's own
+history inside the window, which fixed reproducibility.
+
+**What that missed.** Reproducible, but not comparable across candidates. A
+symbol with fifteen days in the window is ranked on fifteen recent, active days;
+one with four hundred is ranked on a distribution including its quiet ones. The
+key therefore selected whichever symbol had listed most recently — AEROUSDT, with
+15 candles, which can never satisfy any history gate and contributes three
+refusal lines to the log and nothing else.
+
+**How it was caught.** By reading the output of the first real fetch and asking
+whether the chosen symbol could actually demonstrate anything. No test could have
+found this: the code did exactly what it said, and what it said was wrong.
+
+**The fix.** Rank on a fixed trailing slice of the window, identical for every
+candidate, and require the winner to reach the history gate so the log shows the
+gate opening rather than only refusing.
+
 ## Add as you go
 
 - [ ] anything the live fetch surfaces that the offline build could not

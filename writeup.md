@@ -110,27 +110,42 @@ candle that had not closed at fetch time.
 
 **The late-listed symbol was chosen from the data, not from memory — and the
 choice is reproducible.** The script probes the first available daily candle of
-every USDT spot pair (`startTime=0, limit=1`), keeps those whose first candle is
-after 2025-06-01, and ranks the survivors by **median daily quote volume inside
-the mandated window**, tie-broken on the symbol name.
+every USDT spot pair (`startTime=0, limit=1`) — `<<482>>` pairs, of which
+`<<134>>` listed after 2025-06-01 — then fetches each candidate's window history
+and applies three criteria:
 
-The obvious ranking key — 24h quote volume from `/ticker/24hr` — was rejected
-precisely because it is not reproducible: it is a rolling window measured at
-request time, so two candidates with similar turnover can swap places between
-runs and the fetch would produce a different snapshot each time. The median
-in-window volume is computed from the same candles fetched to verify
-completeness and is a constant given the fixed window. The one residual source of
-drift is stated rather than hidden — a symbol delisted between runs leaves
-`exchangeInfo` and so the candidate set — and `LATE_SYMBOL_PIN` in `config.py`
-closes it: once chosen, the symbol is pinned, discovery must still support it,
-and discovery becomes the justification for the choice rather than a live
-dependency on it.
+1. unbroken daily history from listing to the window end;
+2. at least `MIN_CANDLES_ES` candles by the window end;
+3. highest median daily quote volume over the **last 30 days of the window**,
+   tie-broken on symbol name.
+
+Criterion 2 is the one worth explaining. A symbol listed weeks before the window
+closes satisfies the brief and contributes nothing: it can only ever refuse.
+Requiring the late symbol to reach the history gate means the decision log shows
+the gate *opening* — refusals with a reason, then decisions at the exact date the
+evidence becomes sufficient — which is the behaviour worth demonstrating.
+
+Criterion 3 went through two wrong versions before this one, and both are
+instructive. The obvious key, 24h quote volume from `/ticker/24hr`, is a rolling
+window measured at request time: two similar candidates swap places between runs
+and the fetch produces a different snapshot each time. The replacement — median
+volume over each symbol's own in-window history — is reproducible but not
+*comparable*: a symbol with fifteen days in the window is ranked on fifteen
+recent active days while one with four hundred is ranked on a distribution that
+includes its quiet ones, so the key systematically selects the most recent
+listing, i.e. exactly the symbol least able to show anything. A fixed trailing
+slice, identical for every candidate, is both.
+
+The residual source of drift is stated rather than hidden — a symbol delisted
+between runs leaves `exchangeInfo` and so the candidate set — and
+`LATE_SYMBOL_PIN` in `config.py` closes it: once chosen, the symbol is pinned,
+discovery must still support it, and discovery becomes the justification for the
+choice rather than a live dependency on it.
 
 The full scored candidate table is committed in
 `data/snapshot/late_symbol_selection.json`. Selected: **`<<SYMBOL>>`**, first
-candle `<<DATE>>`, `<<N>>` days of history at the window end — the most liquid
-pair satisfying the constraint, so the refusal behaviour it exercises is the
-behaviour a client would actually hit on a new listing.
+candle `<<DATE>>`, `<<N>>` candles at the window end, first decision
+`<<DATE>>`.
 
 `data/verify.py` splits findings in two, which is the part that matters:
 
@@ -158,7 +173,7 @@ Two run-time consequences worth stating:
 
 - Symbols are **not** date-aligned into one frame. Each is loaded and cut
   independently, so one symbol's hole cannot shift another's window.
-- Every symbol refuses for its first 252 days because the ES window is never
+- Every symbol refuses for its first 365 days because the ES window is never
   shortened (below). In the demo run that is `<<N>>` refusal lines, and it is the
   correct answer, not a gap in coverage.
 
@@ -192,8 +207,17 @@ replay mode; and any proposal that breaches a risk limit.
 - **Overlapping windows.** Rolling 20d volatility observations are heavily
   autocorrelated, so the percentile's effective sample is much smaller than its
   nominal one. It ranks the tape honestly; it is not a calibrated probability.
-- **One year of ES.** A 252-day tail contains the last year's worst days and
-  nothing older. It will understate a crisis it has not seen.
+- **Equal weighting inside the ES window.** This is the real limitation, not the
+  window's length: a day eleven months old counts as much as yesterday, so in a
+  market where volatility clusters the ES is slow to acknowledge a regime change,
+  and a 365-day tail contains the last year's worst days and nothing older. Age-
+  weighted or filtered historical simulation — standardise returns by a
+  GARCH/EWMA volatility estimate, take the tail of the residuals, rescale by
+  today's volatility — is the production answer. It is not used here because a
+  fitted parameter has to be re-estimated point-in-time at every as-of date or
+  the log is contaminated, which is the same argument that keeps Stage 1 on
+  rolling statistics; the inertia is partly covered by the 30d volatility
+  percentile sitting beside it.
 - **Model-side drift.** A model deprecation or a silent server-side change alters
   Stage 3 without any input changing. The cache pins the historical log, and the
   model id on every line makes the discontinuity visible, but nothing prevents it.
@@ -241,7 +265,7 @@ verification.
 
 ## 8. What the AI tooling got wrong
 
-Full detail in `NOTES.md`; the four that mattered:
+Full detail in `NOTES.md`; the five that mattered:
 
 1. **A floating-point quantiser that violated the invariant its own comment
    asserted.** `math.floor(t/0.05)*0.05` returns `0.30000000000000004` for
@@ -261,3 +285,11 @@ Full detail in `NOTES.md`; the four that mattered:
 4. **A test fixture asserting on a date the run never covered** (a "Friday" that
    was a Wednesday). It surfaced only because the cache fails closed on a miss —
    a reminder that a fallback would have turned a loud test bug into a silent one.
+5. **Two different notions of "a year" in one risk module** — `sqrt(365)`
+   annualisation beside a 252-return ES lookback. Both constants are individually
+   conventional; together they are incoherent, and nothing in the test suite,
+   the verifier or the output looks wrong. It fails only the question "why 252
+   here?", which no test asks. The same class of error produced a late-symbol
+   ranking key that was reproducible but not comparable across candidates, and
+   duly selected a symbol with 15 candles that could never clear any gate. Both
+   were caught by reading output and asking what a number meant, not by a test.

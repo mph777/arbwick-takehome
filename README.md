@@ -50,7 +50,7 @@ pipeline/loader.py        the ONE place data is cut at the as-of boundary
 pipeline/models.py        strict Pydantic contracts between stages
 pipeline/quality.py       stage 0 — is the history at t usable at all
 pipeline/regime.py        stage 1 — 2x2 rolling-statistic regime
-pipeline/risk.py          stage 2 — drawdown, vol percentile, 252d ES95
+pipeline/risk.py          stage 2 — drawdown, vol percentile, 365d ES95
 pipeline/allocation.py    stage 3 — one tool-constrained model call
 pipeline/constraints.py   the clamp layer, one pure function per rule
 pipeline/llm_cache.py     content-addressed request cache (replay/live/refresh)
