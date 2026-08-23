@@ -108,15 +108,29 @@ pages `/api/v3/klines` at 1000 candles per request, de-duplicating on `open_time
 because `startTime` is inclusive and a naive cursor overlaps, and it drops any
 candle that had not closed at fetch time.
 
-**The late-listed symbol was chosen from the data, not from memory.** The script
-probes the first available daily candle of every USDT spot pair
-(`startTime=0, limit=1`), keeps those whose first candle is after 2025-06-01,
-verifies an unbroken daily history from listing to the window end, and ranks the
-survivors by 24h quote volume. The full candidate table is committed in
+**The late-listed symbol was chosen from the data, not from memory — and the
+choice is reproducible.** The script probes the first available daily candle of
+every USDT spot pair (`startTime=0, limit=1`), keeps those whose first candle is
+after 2025-06-01, and ranks the survivors by **median daily quote volume inside
+the mandated window**, tie-broken on the symbol name.
+
+The obvious ranking key — 24h quote volume from `/ticker/24hr` — was rejected
+precisely because it is not reproducible: it is a rolling window measured at
+request time, so two candidates with similar turnover can swap places between
+runs and the fetch would produce a different snapshot each time. The median
+in-window volume is computed from the same candles fetched to verify
+completeness and is a constant given the fixed window. The one residual source of
+drift is stated rather than hidden — a symbol delisted between runs leaves
+`exchangeInfo` and so the candidate set — and `LATE_SYMBOL_PIN` in `config.py`
+closes it: once chosen, the symbol is pinned, discovery must still support it,
+and discovery becomes the justification for the choice rather than a live
+dependency on it.
+
+The full scored candidate table is committed in
 `data/snapshot/late_symbol_selection.json`. Selected: **`<<SYMBOL>>`**, first
-candle `<<DATE>>`, `<<N>>` days of history at the window end — chosen because it
-is the most liquid pair satisfying the constraint, so the refusal behaviour it
-exercises is the behaviour a client would actually hit on a new listing.
+candle `<<DATE>>`, `<<N>>` days of history at the window end — the most liquid
+pair satisfying the constraint, so the refusal behaviour it exercises is the
+behaviour a client would actually hit on a new listing.
 
 `data/verify.py` splits findings in two, which is the part that matters:
 

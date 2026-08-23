@@ -27,6 +27,14 @@ CORE_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 # empirically by data/fetch.py (see LATE_SYMBOL_SELECTION_FILE) rather than
 # hard-coded from memory.
 LATE_LISTING_AFTER = date(2025, 6, 1)
+
+# Discovery ranks candidates by median daily quote volume INSIDE the mandated
+# window - a constant given the window, unlike a live 24h volume figure. Once a
+# symbol has been chosen it is pinned here, so a later re-fetch cannot silently
+# swap it (e.g. because a higher-ranked candidate was delisted in the meantime).
+# Set to None to let discovery choose; set to a symbol to require that choice.
+LATE_SYMBOL_PIN: str | None = None
+
 LATE_SYMBOL_SELECTION_FILE = SNAPSHOT_DIR / "late_symbol_selection.json"
 MANIFEST_FILE = SNAPSHOT_DIR / "manifest.json"
 
