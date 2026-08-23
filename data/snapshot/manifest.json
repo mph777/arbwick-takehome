@@ -1,0 +1,42 @@
+{
+  "fetched_at_utc": "2026-08-23T17:31:41.721721+00:00",
+  "endpoint": "https://api.binance.com/api/v3/klines",
+  "interval": "1d",
+  "window_start": "2023-01-01",
+  "window_end": "2026-07-31",
+  "late_symbol": "HOMEUSDT",
+  "files": {
+    "BTCUSDT": {
+      "file": "BTCUSDT.csv",
+      "sha256": "a307d3c143c3bcbfe287908d0f05fa6ba7cdcd70ac08f8432b28bffb0614f1bf",
+      "n_candles": 1308,
+      "first_date": "2023-01-01",
+      "last_date": "2026-07-31",
+      "bytes": 218976
+    },
+    "ETHUSDT": {
+      "file": "ETHUSDT.csv",
+      "sha256": "1d5f422c506d789bd566f88e46b77ab2130e65e6f1c8f02c95ca498d653e73ad",
+      "n_candles": 1308,
+      "first_date": "2023-01-01",
+      "last_date": "2026-07-31",
+      "bytes": 214722
+    },
+    "SOLUSDT": {
+      "file": "SOLUSDT.csv",
+      "sha256": "54e3eed5acff8fd2a67523a03c55d5a323c4f18b9993569bc18a8e7896d88b05",
+      "n_candles": 1308,
+      "first_date": "2023-01-01",
+      "last_date": "2026-07-31",
+      "bytes": 208397
+    },
+    "HOMEUSDT": {
+      "file": "HOMEUSDT.csv",
+      "sha256": "7aef2db1cbfcd7d9833b1f2ca5cf2c5a7e5a3e1446f672500d46ff329c83f342",
+      "n_candles": 415,
+      "first_date": "2025-06-12",
+      "last_date": "2026-07-31",
+      "bytes": 62119
+    }
+  }
+}

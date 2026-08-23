@@ -1,0 +1,71 @@
+{
+  "snapshot_sha256": "ceeb707c2a24c74e2365823690f63f5b5c8cd8318dc5ad7efe222f781001d7ef",
+  "per_symbol": {
+    "BTCUSDT": {
+      "n_candles": 1308,
+      "first_date": "2023-01-01",
+      "last_date": "2026-07-31",
+      "expected_days": 1308,
+      "missing_days": [],
+      "gaps": [],
+      "max_consecutive_gap_days": 0,
+      "zero_volume_days": 0,
+      "flat_range_days": 0,
+      "last_close": 62887.88
+    },
+    "ETHUSDT": {
+      "n_candles": 1308,
+      "first_date": "2023-01-01",
+      "last_date": "2026-07-31",
+      "expected_days": 1308,
+      "missing_days": [],
+      "gaps": [],
+      "max_consecutive_gap_days": 0,
+      "zero_volume_days": 0,
+      "flat_range_days": 0,
+      "last_close": 1862.6
+    },
+    "SOLUSDT": {
+      "n_candles": 1308,
+      "first_date": "2023-01-01",
+      "last_date": "2026-07-31",
+      "expected_days": 1308,
+      "missing_days": [],
+      "gaps": [],
+      "max_consecutive_gap_days": 0,
+      "zero_volume_days": 0,
+      "flat_range_days": 0,
+      "last_close": 72.87
+    },
+    "HOMEUSDT": {
+      "n_candles": 415,
+      "first_date": "2025-06-12",
+      "last_date": "2026-07-31",
+      "expected_days": 415,
+      "missing_days": [],
+      "gaps": [],
+      "max_consecutive_gap_days": 0,
+      "zero_volume_days": 0,
+      "flat_range_days": 0,
+      "last_close": 0.0055
+    }
+  },
+  "alignment": {
+    "BTCUSDT": {
+      "missing_vs_union": []
+    },
+    "ETHUSDT": {
+      "missing_vs_union": []
+    },
+    "SOLUSDT": {
+      "missing_vs_union": []
+    },
+    "HOMEUSDT": {
+      "first_date": "2025-06-12",
+      "listing_probe_date": "2025-06-12",
+      "days_of_history_at_window_end": 415
+    }
+  },
+  "hard_failures": [],
+  "soft_findings": []
+}

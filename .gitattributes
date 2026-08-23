@@ -1,0 +1,18 @@
+# Git must not rewrite line endings in this repository.
+#
+# data/snapshot/manifest.json records the sha256 of every committed CSV, and
+# data/verify.py recomputes those hashes as a hard check. Git for Windows
+# defaults to core.autocrlf=true, which rewrites LF to CRLF on checkout - the
+# file content is unchanged to a human and completely different to sha256, so a
+# reviewer cloning on Windows would see "sha256 mismatch - file was edited after
+# fetch" on a snapshot nobody touched.
+#
+# The same applies to llm_cache/ and logs/: the cache is content-addressed and
+# the decision log is compared line by line, so neither may be rewritten in
+# transit either.
+
+* text=auto eol=lf
+
+data/snapshot/** -text
+llm_cache/**     -text
+logs/**          -text
