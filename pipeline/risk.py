@@ -23,8 +23,6 @@ Two deliberate choices worth defending:
 from __future__ import annotations
 
 import math
-from datetime import date
-
 import pandas as pd
 
 import config as cfg

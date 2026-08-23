@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 from pydantic import ValidationError
@@ -11,7 +11,6 @@ import config as cfg
 from pipeline import risk as risk_stage
 from pipeline.loader import as_of_cutoff_ms, load_as_of
 from pipeline.models import LLMResponse, RegimeOutput
-from tests.conftest import START
 
 
 def a_regime(**overrides) -> dict:

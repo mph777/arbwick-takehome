@@ -14,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
-from datetime import timedelta
 from pathlib import Path
 
 import pandas as pd

@@ -46,7 +46,7 @@ RULES_FOR_PROMPT = [
     f"R1 in bear_high_vol with a 30d volatility percentile above "
     f"{cfg.C_EXTREME_VOL_PCTL:.2f}, risk_on is not available",
     f"R2 with a drawdown at or below {cfg.C_DEEP_DRAWDOWN:.0%}, risk_on is not available",
-    f"R3 sizing_tilt ceilings by stance: "
+    "R3 sizing_tilt ceilings by stance: "
     + ", ".join(f"{k} <= {v:.2f}" for k, v in cfg.TILT_CEILING_BY_STANCE.items()),
     f"R4 with a drawdown at or below {cfg.C_DEEP_DRAWDOWN:.0%}, "
     f"sizing_tilt is capped at {cfg.C_DEEP_DRAWDOWN_TILT_CAP:.2f}",

@@ -10,7 +10,6 @@ from __future__ import annotations
 import csv
 from datetime import timedelta
 
-import numpy as np
 import pytest
 
 import config as cfg

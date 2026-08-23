@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 
@@ -11,7 +11,6 @@ from pipeline import allocation
 from pipeline.llm_cache import CacheMiss, LLMCache, request_key
 from pipeline.loader import as_of_cutoff_ms, load_as_of
 from pipeline import regime as regime_stage, risk as risk_stage
-from tests.conftest import START
 
 
 def reads_for(snapshot, symbol, as_of):
